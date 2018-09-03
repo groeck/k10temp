@@ -23,6 +23,7 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/pci.h>
+#include <asm/amd_nb.h>
 #include <asm/processor.h>
 #include "compat.h"
 
@@ -45,8 +46,8 @@ static DEFINE_MUTEX(nb_smu_ind_mutex);
 #define PCI_DEVICE_ID_AMD_17H_DF_F3	0x1463
 #endif
 
-#ifndef PCI_DEVICE_ID_AMD_17H_RR_NB
-#define PCI_DEVICE_ID_AMD_17H_RR_NB	0x15d0
+#ifndef PCI_DEVICE_ID_AMD_17H_M10H_DF_F3
+#define PCI_DEVICE_ID_AMD_17H_M10H_DF_F3	0x15eb
 #endif
 
 /* CPUID function 0x80000001, ebx */
@@ -68,8 +69,8 @@ static DEFINE_MUTEX(nb_smu_ind_mutex);
 #define  NB_CAP_HTC			0x00000400
 
 /*
- * For F15h M60h, functionality of REG_HARDWARE_THERMAL_CONTROL
- * and REG_REPORTED_TEMPERATURE has been moved to
+ * For F15h M60h and M70h, REG_HARDWARE_THERMAL_CONTROL
+ * and REG_REPORTED_TEMPERATURE have been moved to
  * D0F0xBC_xD820_0C64 [Hardware Temperature Control]
  * D0F0xBC_xD820_0CA4 [Reported Temperature Control]
  */
@@ -99,12 +100,8 @@ static const struct tctl_offset tctl_offset_table[] = {
 	{ 0x17, "AMD Ryzen 7 1700X", 20000 },
 	{ 0x17, "AMD Ryzen 7 1800X", 20000 },
 	{ 0x17, "AMD Ryzen 7 2700X", 10000 },
-	{ 0x17, "AMD Ryzen Threadripper 1950X", 27000 },
-	{ 0x17, "AMD Ryzen Threadripper 1920X", 27000 },
-	{ 0x17, "AMD Ryzen Threadripper 1900X", 27000 },
-	{ 0x17, "AMD Ryzen Threadripper 1950", 10000 },
-	{ 0x17, "AMD Ryzen Threadripper 1920", 10000 },
-	{ 0x17, "AMD Ryzen Threadripper 1910", 10000 },
+	{ 0x17, "AMD Ryzen Threadripper 19", 27000 }, /* 19{00,20,50}X */
+	{ 0x17, "AMD Ryzen Threadripper 29", 27000 }, /* 29{20,50,70,90}[W]X */
 };
 
 static void read_htcreg_pci(struct pci_dev *pdev, u32 *regval)
@@ -142,11 +139,11 @@ static void read_tempreg_nb_f15(struct pci_dev *pdev, u32 *regval)
 
 static void read_tempreg_nb_f17(struct pci_dev *pdev, u32 *regval)
 {
-	amd_nb_index_read(pdev, PCI_DEVFN(0, 0), 0x60,
-			  F17H_M01H_REPORTED_TEMP_CTRL_OFFSET, regval);
+	amd_smn_read(amd_pci_dev_to_node_id(pdev),
+		     F17H_M01H_REPORTED_TEMP_CTRL_OFFSET, regval);
 }
 
-unsigned int get_raw_temp(struct k10temp_data *data)
+static unsigned int get_raw_temp(struct k10temp_data *data)
 {
 	unsigned int temp;
 	u32 regval;
@@ -329,8 +326,9 @@ static int k10temp_probe(struct pci_dev *pdev,
 
 	data->pdev = pdev;
 
-	if (boot_cpu_data.x86 == 0x15 && (boot_cpu_data.x86_model == 0x60 ||
-					  boot_cpu_data.x86_model == 0x70)) {
+	if (boot_cpu_data.x86 == 0x15 &&
+	    ((boot_cpu_data.x86_model & 0xf0) == 0x60 ||
+	     (boot_cpu_data.x86_model & 0xf0) == 0x70)) {
 		data->read_htcreg = read_htcreg_nb_f15;
 		data->read_tempreg = read_tempreg_nb_f15;
 	} else if (boot_cpu_data.x86 == 0x17) {
@@ -369,7 +367,7 @@ static const struct pci_device_id k10temp_id_table[] = {
 	{ PCI_VDEVICE(AMD, PCI_DEVICE_ID_AMD_16H_NB_F3) },
 	{ PCI_VDEVICE(AMD, PCI_DEVICE_ID_AMD_16H_M30H_NB_F3) },
 	{ PCI_VDEVICE(AMD, PCI_DEVICE_ID_AMD_17H_DF_F3) },
-	{ PCI_VDEVICE(AMD, PCI_DEVICE_ID_AMD_17H_RR_NB) },
+	{ PCI_VDEVICE(AMD, PCI_DEVICE_ID_AMD_17H_M10H_DF_F3) },
 	{}
 };
 MODULE_DEVICE_TABLE(pci, k10temp_id_table);
