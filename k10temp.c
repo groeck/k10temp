@@ -139,8 +139,14 @@ static void read_tempreg_nb_f15(struct pci_dev *pdev, u32 *regval)
 
 static void read_tempreg_nb_f17(struct pci_dev *pdev, u32 *regval)
 {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 10, 0)
 	amd_smn_read(amd_pci_dev_to_node_id(pdev),
 		     F17H_M01H_REPORTED_TEMP_CTRL_OFFSET, regval);
+#else
+	/* This compiles, but yields wrong results on multi-die chips */
+	amd_nb_index_read(pdev, PCI_DEVFN(0, 0), 0x60,
+			  F17H_M01H_REPORTED_TEMP_CTRL_OFFSET, regval);
+#endif
 }
 
 static unsigned int get_raw_temp(struct k10temp_data *data)
