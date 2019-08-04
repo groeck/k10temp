@@ -23,6 +23,7 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/pci.h>
+#include <linux/pci_ids.h>
 #include <asm/amd_nb.h>
 #include <asm/processor.h>
 #include "compat.h"
@@ -40,22 +41,6 @@ static DEFINE_MUTEX(nb_smu_ind_mutex);
 
 #ifndef PCI_DEVICE_ID_AMD_15H_M70H_NB_F3
 #define PCI_DEVICE_ID_AMD_15H_M70H_NB_F3	0x15b3
-#endif
-
-#ifndef PCI_DEVICE_ID_AMD_17H_DF_F3
-#define PCI_DEVICE_ID_AMD_17H_DF_F3	0x1463
-#endif
-
-#ifndef PCI_DEVICE_ID_AMD_17H_M10H_DF_F3
-#define PCI_DEVICE_ID_AMD_17H_M10H_DF_F3	0x15eb
-#endif
-
-#ifndef PCI_DEVICE_ID_AMD_17H_M30H_DF_F3
-#define PCI_DEVICE_ID_AMD_17H_M30H_DF_F3	0x1493
-#endif
-
-#ifndef PCI_DEVICE_ID_AMD_17H_M70H_DF_F3
-#define PCI_DEVICE_ID_AMD_17H_M70H_DF_F3	0x1443
 #endif
 
 /* CPUID function 0x80000001, ebx */
@@ -148,8 +133,20 @@ static void read_tempreg_nb_f15(struct pci_dev *pdev, u32 *regval)
 static void read_tempreg_nb_f17(struct pci_dev *pdev, u32 *regval)
 {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 10, 0)
-	amd_smn_read(amd_pci_dev_to_node_id(pdev),
-		     F17H_M01H_REPORTED_TEMP_CTRL_OFFSET, regval);
+#ifdef AMD_17H_M70H_DF_F3_LOCAL
+	/*
+	 * If PCI_DEVICE_ID_AMD_17H_M70H_DF_F3 is defined locally,
+	 * amd_smn_read() does not support this CPU. Read temperature
+	 * directly in this case.
+	 */
+	if (pdev->vendor == PCI_VENDOR_ID_AMD &&
+	    pdev->device == PCI_DEVICE_ID_AMD_17H_M70H_DF_F3)
+		amd_nb_index_read(pdev, PCI_DEVFN(0, 0), 0x60,
+				  F17H_M01H_REPORTED_TEMP_CTRL_OFFSET, regval);
+	else
+#endif
+		amd_smn_read(amd_pci_dev_to_node_id(pdev),
+			     F17H_M01H_REPORTED_TEMP_CTRL_OFFSET, regval);
 #else
 	/* This compiles, but yields wrong results on multi-die chips */
 	amd_nb_index_read(pdev, PCI_DEVFN(0, 0), 0x60,
@@ -224,12 +221,12 @@ static ssize_t temp_crit_show(struct device *dev,
 
 static DEVICE_ATTR_RO(temp1_input);
 static DEVICE_ATTR_RO(temp1_max);
-static SENSOR_DEVICE_ATTR(temp1_crit, 0444, temp_crit_show, NULL, 0);
-static SENSOR_DEVICE_ATTR(temp1_crit_hyst, 0444, temp_crit_show, NULL, 1);
+static SENSOR_DEVICE_ATTR_RO(temp1_crit, temp_crit, 0);
+static SENSOR_DEVICE_ATTR_RO(temp1_crit_hyst, temp_crit, 1);
 
-static SENSOR_DEVICE_ATTR(temp1_label, 0444, temp_label_show, NULL, 0);
+static SENSOR_DEVICE_ATTR_RO(temp1_label, temp_label, 0);
 static DEVICE_ATTR_RO(temp2_input);
-static SENSOR_DEVICE_ATTR(temp2_label, 0444, temp_label_show, NULL, 1);
+static SENSOR_DEVICE_ATTR_RO(temp2_label, temp_label, 1);
 
 static umode_t k10temp_is_visible(struct kobject *kobj,
 				  struct attribute *attr, int index)
@@ -345,7 +342,7 @@ static int k10temp_probe(struct pci_dev *pdev,
 	     (boot_cpu_data.x86_model & 0xf0) == 0x70)) {
 		data->read_htcreg = read_htcreg_nb_f15;
 		data->read_tempreg = read_tempreg_nb_f15;
-	} else if (boot_cpu_data.x86 == 0x17) {
+	} else if (boot_cpu_data.x86 == 0x17 || boot_cpu_data.x86 == 0x18) {
 		data->temp_adjust_mask = 0x80000;
 		data->read_tempreg = read_tempreg_nb_f17;
 		data->show_tdie = true;
@@ -384,6 +381,7 @@ static const struct pci_device_id k10temp_id_table[] = {
 	{ PCI_VDEVICE(AMD, PCI_DEVICE_ID_AMD_17H_M10H_DF_F3) },
 	{ PCI_VDEVICE(AMD, PCI_DEVICE_ID_AMD_17H_M30H_DF_F3) },
 	{ PCI_VDEVICE(AMD, PCI_DEVICE_ID_AMD_17H_M70H_DF_F3) },
+	{ PCI_VDEVICE(HYGON, PCI_DEVICE_ID_AMD_17H_DF_F3) },
 	{}
 };
 MODULE_DEVICE_TABLE(pci, k10temp_id_table);
