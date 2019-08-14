@@ -1,5 +1,10 @@
 # For building for the current running version of Linux
+ifndef TARGET
 TARGET		:= $(shell uname -r)
+endif
+# Or specific version
+#TARGET		:= 2.6.33.5
+
 KERNEL_MODULES	:= /lib/modules/$(TARGET)
 
 ifneq ("","$(wildcard /usr/src/linux-headers-$(TARGET)/*)")
@@ -22,6 +27,19 @@ SYSTEM_MAP	:= /proc/kallsyms
 endif
 
 DRIVER := k10temp
+ifneq ("","$(wildcard .git/*)")
+DRIVER_VERSION := $(shell git describe --long)
+else
+ifneq ("", "$(wildcard VERSION)")
+DRIVER_VERSION := $(shell cat VERSION)
+else
+DRIVER_VERSION := unknown
+endif
+endif
+
+# DKMS
+DKMS_ROOT_PATH=/usr/src/$(DRIVER)-$(DRIVER_VERSION)
+MODPROBE_OUTPUT=$(shell lsmod | grep k10temp)
 
 # Directory below /lib/modules/$(TARGET)/kernel into which to install
 # the module:
@@ -40,13 +58,18 @@ ifneq ("","$(wildcard $(MODDESTDIR)/*.ko.xz)")
 COMPRESS_XZ := y
 endif
 
-.PHONY: all install modules modules_install clean
+.PHONY: all install modules modules_install clean dkms dkms_clean
 
 all: modules
 
 # Targets for running make directly in the external module directory:
 
-modules clean:
+K10TEMP_CFLAGS=-DK10TEMP_DRIVER_VERSION='\"$(DRIVER_VERSION)\"'
+
+modules:
+	@$(MAKE) EXTRA_CFLAGS="$(K10TEMP_CFLAGS)" -C $(KERNEL_BUILD) M=$(CURDIR) $@
+
+clean:
 	@$(MAKE) -C $(KERNEL_BUILD) M=$(CURDIR) $@
 
 install: modules_install
@@ -61,3 +84,24 @@ ifeq ($(COMPRESS_XZ), y)
 	@xz -f $(MODDESTDIR)/$(DRIVER).ko
 endif
 	depmod -a -F $(SYSTEM_MAP) $(TARGET)
+
+dkms:
+	@sed -i -e '/^PACKAGE_VERSION=/ s/=.*/=\"$(DRIVER_VERSION)\"/' dkms.conf
+	@echo "$(DRIVER_VERSION)" >VERSION
+	@mkdir $(DKMS_ROOT_PATH)
+	@cp `pwd`/dkms.conf $(DKMS_ROOT_PATH)
+	@cp `pwd`/VERSION $(DKMS_ROOT_PATH)
+	@cp `pwd`/Makefile $(DKMS_ROOT_PATH)
+	@cp `pwd`/compat.h $(DKMS_ROOT_PATH)
+	@cp `pwd`/k10temp.c $(DKMS_ROOT_PATH)
+	@dkms add -m $(DRIVER) -v $(DRIVER_VERSION)
+	@dkms build -m $(DRIVER) -v $(DRIVER_VERSION)
+	@dkms install --force -m $(DRIVER) -v $(DRIVER_VERSION)
+	@modprobe $(DRIVER)
+
+dkms_clean:
+	@if [ ! -z "$(MODPROBE_OUTPUT)" ]; then \
+		rmmod $(DRIVER);\
+	fi
+	@dkms remove -m $(DRIVER) -v $(DRIVER_VERSION) --all
+	@rm -rf $(DKMS_ROOT_PATH)

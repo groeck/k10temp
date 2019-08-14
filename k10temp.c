@@ -31,6 +31,9 @@
 MODULE_DESCRIPTION("AMD Family 10h+ CPU core temperature monitor");
 MODULE_AUTHOR("Clemens Ladisch <clemens@ladisch.de>");
 MODULE_LICENSE("GPL");
+#ifdef K10TEMP_DRIVER_VERSION
+MODULE_VERSION(K10TEMP_DRIVER_VERSION);
+#endif
 
 static bool force;
 module_param(force, bool, 0444);
